@@ -79,6 +79,7 @@ limitations under the License.
 #include "xla/service/all_reduce_folder.h"
 #include "xla/service/all_reduce_promotion.h"
 #include "xla/service/all_reduce_reassociate.h"
+#include "xla/service/all_reduce_simplifier.h"
 #include "xla/service/async_collective_creator.h"
 #include "xla/service/batched_gather_scatter_normalizer.h"
 #include "xla/service/batchnorm_expander.h"
@@ -852,6 +853,7 @@ absl::Status RunCollectiveOptimizationPasses(
   const DebugOptions& debug_options = hlo_module->config().debug_options();
 
   HloPassPipeline collectives_pipeline("collective-optimizations");
+  collectives_pipeline.AddPass<AllReduceSimplifier>();
   collectives_pipeline.AddPass<AllReduceFolder>();
   collectives_pipeline.AddPass<AllReduceSplitter>();
   collectives_pipeline.AddPass<AllGatherOptimizer>();
@@ -1592,6 +1594,12 @@ absl::Status GpuCompiler::OptimizeHloPostLayoutAssignment(
 
   // Rewrite GEMMs with broadcasted inputs as strided GEMMs.
   pipeline.AddPass<GemmBroadcastFoldingRewriter>();
+
+  pipeline.AddPass<LayoutNormalization>(&NormalizeLayoutForGpuCustomCalls);
+
+  // Layout normalization will create scatters that are not simplified and
+  // also have unsorted update_window_dims.
+  pipeline.AddPass<ScatterSimplifier>();
 
   pipeline.AddPass<HostOffloader>(
       static_cast<int64_t>(stream_executor::MemoryType::kHost));
